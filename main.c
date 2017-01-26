@@ -28,7 +28,7 @@ int main(void)
     bzero(&servaddr, sizeof(servaddr));   
     servaddr.sin_family      = AF_INET;
     servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    servaddr.sin_port        = htons(80);
+    servaddr.sin_port        = htons(8000);
 //    if ((sefd = (AF_INET, SOCK_STREAM, 0)) < 0)
     if ((sockfd = initserver(SOCK_STREAM, (struct sockaddr *)&servaddr, sizeof(servaddr),128 )) < 0)
         err_quit("error when create the tcp socket");
