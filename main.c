@@ -67,7 +67,7 @@ errout:
     err = errno;
     close(fd);
     errno = err;
-    err_sys("failed to initilize the server");
+    err_sys("failed to initialize the server");
     return -1;
 }
 
@@ -76,8 +76,8 @@ void serve(int sockfd, struct sockaddr *clientaddr, socklen_t *length)
     int clfd;
     char hello[] = "Hello, World!";
     char buf[128];
-    sprintf(buf, "HTTP/1.1 200 OK\r\n\r\n\
-Content-Type: text/html\r\n\
+    sprintf(buf, "HTTP/1.1 200 OK\
+Content-Type: text/html\
 Content-Length: %ld\r\n\r\n\
 %s\r\n", sizeof(hello), hello);
     if ((clfd = accept(sockfd, clientaddr, length)) < 0)
