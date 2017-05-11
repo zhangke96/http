@@ -12,9 +12,17 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <stdarg.h>
-void err_ret(const char *str)
+#define error_location() \
+    do {\
+        printf("error in file %s at line %d\n", __FILE__, __LINE__); \
+    } while(0)
+void err_ret(const char *fmt, ...)
 {
-    printf("%s; The errno is %s\n",str, strerror(errno));
+    printf("The errno is %s\n", strerror(errno));
+    va_list ap;
+    va_start(ap, fmt);
+    vprintf(fmt, ap);
+    va_end(ap);
 }
 void err_quit(const char *fmt, ...)
 {
