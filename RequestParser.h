@@ -40,7 +40,10 @@ public:
     bool isFinished() const {return finished;};
     size_t parser_execute(const char *buf, size_t recved)     /* recved is the length of the content in buf */
     {
+        ++num;
         size_t nparsed = http_parser_execute(parser, &settings, buf, recved);
+        if (num >= 5)
+            finished = true;
         return nparsed;
     }
     int getMethod() const /* return http method */
@@ -78,6 +81,7 @@ public:
         free(parser);
     }
 private:
+    int num = 0;
     http_parser *parser;
     std::map<std::string, std::string> fvpairs;   // Header fields and values
     std::string tempField = "";

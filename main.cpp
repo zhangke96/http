@@ -82,7 +82,6 @@ int main(void)
 {
     int sockfd;
     struct sockaddr_in servaddr;
-    struct sockaddr_in clientaddr;
     socklen_t length;
     char abuf[INET_ADDRSTRLEN];
 
@@ -99,9 +98,10 @@ int main(void)
     // now success create a socket
     for (; ;)
     {
+        struct sockaddr_in clientaddr;
         serve(sockfd, (struct sockaddr *)&clientaddr, &length);
         // print the client address and port number
-        printf("client address: %s:%d\n", inet_ntop(AF_INET, &clientaddr.sin_addr, abuf,\
+   //     printf("client address: %s:%d\n", inet_ntop(AF_INET, &clientaddr.sin_addr, abuf,\
                                                    INET_ADDRSTRLEN), ntohs(clientaddr.sin_port));
     }
     return 0;
@@ -148,6 +148,7 @@ connectHandThreadFunc(void *clfdP)
     char *wp;
     while (!aParser.isFinished())
     {
+        std::cout << "I am recving" << std::endl;
         recved = recv(clfd, buf, len - 1, 0);
         if (recved < 0) {
             error_location();
@@ -197,6 +198,8 @@ connectHandThreadFunc(void *clfdP)
             {
                 index += readNum;
             }
+            if (readNum < 0)
+                error_location();
             sprintf(buf, "HTTP/1.1 200 OK\
 Content-Type: text/html\
 Content-Length: %ld\r\n\r\n\
@@ -205,9 +208,7 @@ Content-Length: %ld\r\n\r\n\
         }
     }
     close(clfd);
-    return NULL;
-
-
+    pthread_exit(NULL);
 }
 void serve(int sockfd, struct sockaddr *clientaddr, socklen_t *length)
 {
@@ -234,10 +235,10 @@ Content-Length: %ld\r\n\r\n\
     else   //开启线程开始接受数据并且处理然后返回结果
     {
 
-        struct sockaddr_in clientaddr;
+     //   struct sockaddr_in clientaddr;
         char abuf[INET_ADDRSTRLEN];
-        printf("client address: %s:%d\n", inet_ntop(AF_INET, &clientaddr.sin_addr, abuf,\
-                                                   INET_ADDRSTRLEN), ntohs(clientaddr.sin_port));
+        printf("client address: %s:%d\n", inet_ntop(AF_INET, &((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_addr), abuf,\
+                                                   INET_ADDRSTRLEN), ntohs((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_port));
         pthread_t pNo;
         int clientfd = clfd;
         pthread_create(&pNo, NULL, connectHandThreadFunc, (void *)&clientfd);
