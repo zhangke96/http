@@ -17,10 +17,156 @@
 #include <fcntl.h>
 #include "http_parser.h"
 #include "RequestParser.h"
+#include <time.h>
 
 int initserver(int type, const struct sockaddr *addr, socklen_t alen, int qlen);
 void serve(int sockfd, struct sockaddr *cltaddr, socklen_t *len);
 void *connectHandThreadFunc(void *);
+std::string createNotFound()
+{
+    time_t nowTime = time(NULL);
+    struct tm *toParse = gmtime(&nowTime);
+    char timebuf[40];
+    if (strftime(timebuf, 40, "Date: %a, %d %b %G %T %Z", toParse) == 0)
+    {
+        error_location();
+        std::cout << "timebuf 40 is to short" << std::endl;
+    }
+    std::string response("HTTP/1.1 404 Not Found\r\n"
+                                 "Server: zhangke/0.1\r\n");
+    response.append(timebuf);
+    response.append("\r\nContent-Type: text/html\r\nTransfer-Encoding: chunked\r\nConnection:close\r\n\r\n");
+    return response;
+}
+std::string createOk()
+{
+    time_t nowTime = time(NULL);
+    struct tm *toParse = gmtime(&nowTime);
+    char timebuf[40];
+    if (strftime(timebuf, 40, "Date: %a, %d %b %G %T %Z", toParse) == 0)
+    {
+        error_location();
+        std::cout << "timebuf 40 is to short" << std::endl;
+    }
+    std::string response("HTTP/1.1 200 OK\r\n"
+                                 "Server: zhangke/0.1\r\n");
+    response.append(timebuf);
+    response.append("\r\nContent-Type: text/html\r\nTransfer-Encoding: chunked\r\nConnection:close\r\n\r\n");
+    return response;
+}
+void sendFile(int clfd, int fd, char *buf, size_t bufsize)
+{
+    ssize_t readSize;
+    ssize_t sendSize;
+    char sizebuf[15];
+    char terminate[] = "0\r\n\r\n";
+    char *work;
+    int status = 1;
+    int remainSize = bufsize - 2;
+    int index = 0;
+    size_t alineSize;
+    int blockSize = 0;
+    FILE *fileInput = fdopen(fd, "r");
+    while (status != 2)
+    {
+        /*
+        while ((work = fgets(buf + index, remainSize, fileInput)) != NULL)   // fgets will store \n and change to \r\n
+        {
+            status = 0;
+            alineSize = strlen(work);
+            if (alineSize > 1)
+            {
+                if (work[alineSize - 1] == '\n' && work[alineSize - 2] != '\r')
+                {
+                    work[alineSize - 1] = '\r';
+                    work[alineSize] = '\n';
+                }
+                else
+                    --alineSize;
+            }
+            else
+            {
+                work[alineSize - 1] = '\r';
+                work[alineSize] = '\n';
+            }
+            blockSize += (alineSize - 1);
+            index += (alineSize + 2);
+            remainSize -= (alineSize + 2);
+        }
+         */
+        while ((work = fgets(buf + index, remainSize, fileInput)) != NULL)   // fgets will store \n and change to \r\n
+        {
+            status = 0;
+            alineSize = strlen(work);
+            blockSize += alineSize;
+            index += alineSize;
+            remainSize -= alineSize;
+        }
+        // read a block, send
+        if (status == 0)
+        {
+            snprintf(sizebuf, 14, "%x\r\n", blockSize);
+            printf("a block size:%s", sizebuf);
+            buf[blockSize] = '\r';
+            buf[blockSize+1] = '\n';
+            if ((sendSize = send(clfd, sizebuf, strlen(sizebuf), 0)) != strlen(sizebuf))
+            {
+                error_location();
+                pthread_exit(NULL);
+            }
+            if ((sendSize = send(clfd, buf, blockSize + 2, 0)) != blockSize + 2)
+            {
+                error_location();
+                pthread_exit(NULL);
+            }
+        }
+        // resotre the counters
+        remainSize = bufsize - 2;
+        index = 0;
+        blockSize = 0;
+        ++status;   // status == 2 can confirm I have read all the file
+        if (status == 2)
+        {
+            std::cout << "I have read all the 404 file" << std::endl;
+        }
+    }
+//    char sendtest[] = "0123456789\r\n";
+//    send(clfd, "a\r\n", 3, 0);
+//    send(clfd, sendtest, strlen(sendtest), 0);
+    std::cout << "I am going to send endding" << std::endl;
+    if ((sendSize = send(clfd, terminate, strlen(terminate), 0)) != strlen(terminate))
+    {
+        error_location();
+        printf("send endding\n");
+        pthread_exit(NULL);
+    }
+    std::cout << "terminate lenght: " << strlen(terminate) << std::endl;
+    std::cout << "sending all" << std::endl;
+    /*
+    while ((readSize = read(fd, buf, bufsize)) > 0)
+    {
+        snprintf(sizebuf, 14, "\r\n%x\r\n", readSize);
+        if ((sendSize = send(clfd, sizebuf, strlen(sizebuf), 0)) != strlen(sizebuf))
+        {
+            error_location();
+            pthread_exit(NULL);
+        }
+        printf("%s", sizebuf);
+        if ((sendSize = send(clfd, buf, readSize, 0)) != readSize)
+        {
+            error_location();
+            pthread_exit(NULL);
+        }
+        printf("%s", buf);
+    }
+    if ((sendSize = send(clfd, terminate, strlen(terminate), 0)) != strlen(terminate))
+    {
+        error_location();
+        pthread_exit(NULL);
+    }
+    printf("%s", terminate);
+     */
+}
 //int call_message_begin_cb(http_parser *p)
 //{
 //    printf("call_message_begin\n");
@@ -178,7 +324,6 @@ connectHandThreadFunc(void *clfdP)
         }
 //        if (aParser.getUrl() == "/index.html" || aParser.getUrl() == "/")
         {
-            std::cout << "/index.html" << std::endl;
             printf("request file: %s\n", aParser.getUrl().c_str() + 1);
             int sendFd;
             if (aParser.getUrl() == "/")
@@ -189,8 +334,24 @@ connectHandThreadFunc(void *clfdP)
             {
                 error_location();
                 perror("open file to send");
+                std::string notFoundHead = createNotFound();
+                send(clfd, notFoundHead.c_str(), notFoundHead.size(), 0);
+                sendFd = open("404.html", O_RDONLY);
+                if (sendFd < 0)
+                {
+                    error_location();
+                    pthread_exit(NULL);
+                }
+                sendFile(clfd, sendFd, buf, 80*1024);
                 pthread_exit(NULL);
             }
+            else
+            {
+                std::string ok = createOk();
+                send(clfd, ok.c_str(), ok.size(), 0);
+                sendFile(clfd, sendFd, buf, 80*1024);
+            }
+            /*
             ssize_t readNum;
             ssize_t index = 0;
             wp = abuf;
@@ -205,6 +366,7 @@ Content-Type: text/html\
 Content-Length: %ld\r\n\r\n\
 %s\r\n", strlen(abuf), abuf);
             send(clfd, buf, strlen(buf), 0);
+             */
         }
     }
     close(clfd);
