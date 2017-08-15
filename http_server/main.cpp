@@ -22,9 +22,11 @@
 #include <memory>
 #include <vector>
 #include "aux_class.h"
+#include "log.h"
 
 //std::vector<std::string, __gnu_cxx::pool_allocator<std::string>> vec;
 
+extern std::ofstream logStream;
 int initserver(int type, const struct sockaddr *addr, socklen_t alen, int qlen);
 void serve(int sockfd, struct sockaddr *cltaddr, socklen_t *len);
 void *connectHandThreadFunc(void *);
@@ -36,8 +38,7 @@ std::string createNotFound()
     char timebuf[40];
     if (strftime(timebuf, 40, "Date: %a, %d %b %G %T %Z", toParse) == 0)
     {
-        error_location();
-        std::cout << "timebuf 40 is to short" << std::endl;
+		printLog(LOG_WARN, "time buf is too short", __FILE__, __LINE__);
     }
     std::string response("HTTP/1.1 404 Not Found\r\n"
                                  "Server: zhangke/0.1\r\n");
@@ -53,8 +54,7 @@ std::string createOk()
     char timebuf[40];
     if (strftime(timebuf, 40, "Date: %a, %d %b %G %T %Z", toParse) == 0)
     {
-        error_location();
-        std::cout << "timebuf 40 is to short" << std::endl;
+		printLog(LOG_WARN, "time buf is too short", __FILE__, __LINE__);
     }
     std::string response("HTTP/1.1 200 OK\r\n"
                                  "Server: zhangke/0.1\r\n");
@@ -114,7 +114,7 @@ void sendFile(fdwrap clfd, fdwrap fd, char *buf, size_t bufsize)
         if (status == 0)
         {
             snprintf(sizebuf, 14, "%x\r\n", blockSize);
-            printf("a block size:%s", sizebuf);
+           // printf("a block size:%s", sizebuf);
             buf[blockSize] = '\r';
             buf[blockSize+1] = '\n';
             if ((sendSize = send(clfd.getfd(), sizebuf, strlen(sizebuf), 0)) != strlen(sizebuf))
@@ -137,22 +137,19 @@ void sendFile(fdwrap clfd, fdwrap fd, char *buf, size_t bufsize)
         ++status;   // status == 2 can confirm I have read all the file
         if (status == 2)
         {
-            std::cout << "I have read all the 404 file" << std::endl;
+			printLog(LOG_DEBUG, "I have send all 404 file", __FILE__, __LINE__);
         }
     }
 //    char sendtest[] = "0123456789\r\n";
 //    send(clfd, "a\r\n", 3, 0);
 //    send(clfd, sendtest, strlen(sendtest), 0);
-    std::cout << "I am going to send endding" << std::endl;
+	printLog(LOG_DEBUG, "I am going to send endding", __FILE__, __LINE__);
     if ((sendSize = send(clfd.getfd(), terminate, strlen(terminate), 0)) != strlen(terminate))
     {
-        error_location();
-        printf("send endding\n");
+		printLog(LOG_ERROR, "error when send endding, size not equal", __FILE__, __LINE__);
 		//close(fd);
         pthread_exit(NULL);
     }
-    std::cout << "terminate lenght: " << strlen(terminate) << std::endl;
-    std::cout << "sending all" << std::endl;
     /*
     while ((readSize = read(fd, buf, bufsize)) > 0)
     {
@@ -186,6 +183,7 @@ void sendFile(fdwrap clfd, fdwrap fd, char *buf, size_t bufsize)
  */
 int main(void)
 {
+	logStream.open("log", std::ostream::app);
     int sockfd;
     struct sockaddr_in servaddr;
     socklen_t length;
@@ -198,13 +196,14 @@ int main(void)
 
     if ((sockfd = initserver(SOCK_STREAM, (struct sockaddr *)&servaddr, sizeof(servaddr),128 )) < 0)
     {
-        error_location();
-        err_quit("error when create the tcp socket");
+		printLog(LOG_ERROR, "error when create the tcp socket " + std::string(strerror(errno)), __FILE__, __LINE__);
+		exit(-1);
     }
     // now success create a socket
     for (; ;)
     {
         struct sockaddr_in clientaddr;
+		length = sizeof(clientaddr);
         serve(sockfd, (struct sockaddr *)&clientaddr, &length);
         // print the client address and port number
    //     printf("client address: %s:%d\n", inet_ntop(AF_INET, &clientaddr.sin_addr, abuf,\
@@ -237,8 +236,7 @@ errout:
     err = errno;
     close(fd);
     errno = err;
-    error_location();
-    err_sys("failed to initialize the server");
+	printLog(LOG_ERROR, "failed to initialize the server " + std::string(strerror(errno)), __FILE__, __LINE__);
     return -1;
 }
 
@@ -255,7 +253,7 @@ connectHandThreadFunc(void *clfdP)
     char *wp;
     while (!aParser.isFinished())
     {
-        std::cout << "I am recving" << std::endl;
+		printLog(LOG_INFO, "I am recving", __FILE__, __LINE__);
 		// use select function to wait for the request from the client
 		fd_set rset;
 		FD_SET(clfd, &rset);
@@ -263,8 +261,7 @@ connectHandThreadFunc(void *clfdP)
 		int selectreturn;
 		if ((selectreturn = select(clfd + 1, &rset, NULL, NULL, &waittime)) < 0)
 		{
-			error_location();
-			err_sys("error when recv ");
+			printLog(LOG_ERROR, "error when select " + std::string(strerror(errno)), __FILE__, __LINE__);
 			//close(clfd);
 			pthread_exit(NULL);
 		}
@@ -272,8 +269,7 @@ connectHandThreadFunc(void *clfdP)
 		{
 			recved = recv(clfd, buf, len - 1, 0);
 			if (recved < 0) {
-				error_location();
-				err_sys("error when recv ");
+				printLog(LOG_ERROR, "error when read " + std::string(strerror(errno)), __FILE__, __LINE__);
 				//close(clfd);
 				pthread_exit(NULL);
 			}
@@ -281,8 +277,7 @@ connectHandThreadFunc(void *clfdP)
 		else
 		{
 			// time out, close the connection
-			error_location();
-			err_sys("error when wait for the request from client, time out ");
+			printLog(LOG_INFO, "time out when select", __FILE__, __LINE__);
 			//close(clfd);
 			pthread_exit(NULL);
 		}
@@ -306,42 +301,39 @@ connectHandThreadFunc(void *clfdP)
         {
             error_location();
             std::cout << "error when open dir" << std::endl;
+			printLog(LOG_ERROR, "error when open dir " + std::string(strerror(errno)), __FILE__, __LINE__);
 			//close(clfd);
             pthread_exit(NULL);
         }
-//        if (aParser.getUrl() == "/index.html" || aParser.getUrl() == "/")
-        {
-            printf("request file: %s\n", aParser.getUrl().c_str() + 1);
-            int sendFd;
-            if (aParser.getUrl() == "/")
-                sendFd = open("index.html", O_RDONLY);
-            else
-                sendFd = open(aParser.getUrl().c_str() + 1, O_RDONLY);
-            if (sendFd < 0)
-            {
-                error_location();
-                perror("open file to send");
-                std::string notFoundHead = createNotFound();
-                send(clfd, notFoundHead.c_str(), notFoundHead.size(), 0);
-                sendFd = open("404.html", O_RDONLY);
-                if (sendFd < 0)
-                {
-                    error_location();
-                    pthread_exit(NULL);
-                }
-				fdwrap sendFdWrap(sendFd);
-                sendFile(socketfd, sendFdWrap, buf, 80*1024);
-                pthread_exit(NULL);
-            }
-            else
-            {
-				fdwrap sendFdWrap(sendFd);
-                std::string ok = createOk();
-                send(clfd, ok.c_str(), ok.size(), 0);
-                sendFile(socketfd, sendFdWrap, buf, 80*1024);
-				//close(sendFd);
-            }
-        }
+		printLog(LOG_INFO, "request file " + aParser.getUrl(), __FILE__, __LINE__);
+		int sendFd;
+		if (aParser.getUrl() == "/")
+			sendFd = open("index.html", O_RDONLY);
+		else
+			sendFd = open(aParser.getUrl().c_str() + 1, O_RDONLY);
+		if (sendFd < 0)
+		{
+			printLog(LOG_WARN, "failed to open file: " + aParser.getUrl(), __FILE__, __LINE__);
+			std::string notFoundHead = createNotFound();
+			send(clfd, notFoundHead.c_str(), notFoundHead.size(), 0);
+			sendFd = open("404.html", O_RDONLY);
+			if (sendFd < 0)
+			{
+				printLog(LOG_ERROR, "failed to open 404 file", __FILE__, __LINE__);
+				pthread_exit(NULL);
+			}
+			fdwrap sendFdWrap(sendFd);
+			sendFile(socketfd, sendFdWrap, buf, 80 * 1024);
+			pthread_exit(NULL);
+		}
+		else
+		{
+			fdwrap sendFdWrap(sendFd);
+			std::string ok = createOk();
+			send(clfd, ok.c_str(), ok.size(), 0);
+			sendFile(socketfd, sendFdWrap, buf, 80 * 1024);
+			//close(sendFd);
+		}
     }
    //close(clfd);
     pthread_exit(NULL);
@@ -351,15 +343,16 @@ void serve(int sockfd, struct sockaddr *clientaddr, socklen_t *length)
     int clfd;
     if ((clfd = accept(sockfd, clientaddr, length)) < 0)
     {	
-        error_location();
-        err_sys("accept error");
+		printLog(LOG_ERROR, "accept error: " + std::string(strerror(errno)), __FILE__, __LINE__);
         return;
     }
     else   //开启线程开始接受数据并且处理然后返回结果
     {
         char abuf[INET_ADDRSTRLEN];
-        printf("client address: %s:%d\n", inet_ntop(AF_INET, &((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_addr), abuf,\
+       // printf("client address: %s:%d\n", inet_ntop(AF_INET, &((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_addr), abuf,\
                                                    INET_ADDRSTRLEN), ntohs((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_port));
+		printLog(LOG_INFO, "client address: " + std::string(inet_ntop(AF_INET, &((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_addr), abuf, \
+			INET_ADDRSTRLEN)) + std::to_string(ntohs((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_port)), __FILE__, __LINE__);
         pthread_t pNo;
         int clientfd = clfd;
         pthread_create(&pNo, NULL, connectHandThreadFunc, (void *)&clientfd);

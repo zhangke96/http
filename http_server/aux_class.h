@@ -73,5 +73,6 @@ public:
 private:
 	mutexWrap &mutex;
 };
+
 #endif // !AUX_CLASS
 
