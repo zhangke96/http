@@ -74,6 +74,7 @@ void sendFile(fdwrap clfd, fdwrap fd, char *buf, size_t bufsize)
     int index = 0;
     int blockSize = 0;
 	int size = 0;
+	int status = 0;
     while (true)
     {
         /*
@@ -131,7 +132,10 @@ void sendFile(fdwrap clfd, fdwrap fd, char *buf, size_t bufsize)
         index = 0;
         blockSize = 0;
 		if (size == 0)
-			break;
+		{
+			if (fd.endOfFile())
+				break;
+		}
     }
 //    char sendtest[] = "0123456789\r\n";
 //    send(clfd, "a\r\n", 3, 0);

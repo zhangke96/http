@@ -4,6 +4,8 @@
 #include <unistd.h>
 #include "tool.h"
 #include <pthread.h>
+#include <sys/stat.h>
+#include "log.h"
 class fdwrap
 {
 	/* 用来包装fd(file descriptor),可以共享fd,自动计数，没有引用时自动释放 */
@@ -20,6 +22,22 @@ public:
 	int getfd()
 	{
 		return fd;
+	}
+	bool endOfFile() const
+	{
+		struct stat statinfo;
+		if (fstat(fd, &statinfo) != 0)
+		{
+			printLog(LOG_ERROR, "error when fstat", __FILE__, __LINE__);
+			return true;
+		}
+		off_t fileoffset;
+		if ((fileoffset = lseek(fd, 0, SEEK_CUR)) == -1)
+		{
+			printLog(LOG_ERROR, "can't lseek", __FILE__, __LINE__);
+			return true;
+		}
+		return (fileoffset == statinfo.st_size);
 	}
 private:
 	int fd;
