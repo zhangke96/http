@@ -69,13 +69,11 @@ void sendFile(fdwrap clfd, fdwrap fd, char *buf, size_t bufsize)
     char sizebuf[15];
     const char terminate[] = "0\r\n\r\n";
     char *work;
-    int status = 1;
     int remainSize = bufsize - 2;
     int index = 0;
-    size_t alineSize;
     int blockSize = 0;
-    FILE *fileInput = fdopen(fd.getfd(), "r");
-    while (status != 2)
+	int size = 0;
+    while (true)
     {
         /*
         while ((work = fgets(buf + index, remainSize, fileInput)) != NULL)   // fgets will store \n and change to \r\n
@@ -102,43 +100,37 @@ void sendFile(fdwrap clfd, fdwrap fd, char *buf, size_t bufsize)
             remainSize -= (alineSize + 2);
         }
          */
-        while ((work = fgets(buf + index, remainSize, fileInput)) != NULL)   // fgets will store \n and change to \r\n
-        {
-            status = 0;
-            alineSize = strlen(work);
-            blockSize += alineSize;
-            index += alineSize;
-            remainSize -= alineSize;
-        }
-        // read a block, send
-        if (status == 0)
-        {
-            snprintf(sizebuf, 14, "%x\r\n", blockSize);
-           // printf("a block size:%s", sizebuf);
-            buf[blockSize] = '\r';
-            buf[blockSize+1] = '\n';
-            if ((sendSize = send(clfd.getfd(), sizebuf, strlen(sizebuf), 0)) != strlen(sizebuf))
-            {
-                error_location();
-				//close(fd);
-                pthread_exit(NULL);
-            }
-            if ((sendSize = send(clfd.getfd(), buf, blockSize + 2, 0)) != blockSize + 2)
-            {
-                error_location();
-				//close(fd);
-                pthread_exit(NULL);
-            }
-        }
+		while ((size = fd.read(buf + index, remainSize)) > 0)
+		{
+			//status = 0;
+			blockSize += size;
+			index += size;
+			remainSize -= size;
+		}
+		if (size < 0)   // error when read, stop
+		{
+			printLog(LOG_ERROR, "error when read", __FILE__, __LINE__);
+			break;
+		}
+		snprintf(sizebuf, 14, "%x\r\n", blockSize);
+		buf[blockSize] = '\r';
+		buf[blockSize + 1] = '\n';
+		if ((sendSize = send(clfd.getfd(), sizebuf, strlen(sizebuf), 0)) != strlen(sizebuf))
+		{
+			printLog(LOG_ERROR, "error when send chunked head", __FILE__, __LINE__);
+			pthread_exit(NULL);
+		}
+		if ((sendSize = send(clfd.getfd(), buf, blockSize + 2, 0)) != blockSize + 2)
+		{
+			printLog(LOG_ERROR, "error when send chunked body", __FILE__, __LINE__);
+			pthread_exit(NULL);
+		}
         // resotre the counters
         remainSize = bufsize - 2;
         index = 0;
         blockSize = 0;
-        ++status;   // status == 2 can confirm I have read all the file
-        if (status == 2)
-        {
-			printLog(LOG_DEBUG, "I have send all 404 file", __FILE__, __LINE__);
-        }
+		if (size == 0)
+			break;
     }
 //    char sendtest[] = "0123456789\r\n";
 //    send(clfd, "a\r\n", 3, 0);
@@ -150,30 +142,6 @@ void sendFile(fdwrap clfd, fdwrap fd, char *buf, size_t bufsize)
 		//close(fd);
         pthread_exit(NULL);
     }
-    /*
-    while ((readSize = read(fd, buf, bufsize)) > 0)
-    {
-        snprintf(sizebuf, 14, "\r\n%x\r\n", readSize);
-        if ((sendSize = send(clfd, sizebuf, strlen(sizebuf), 0)) != strlen(sizebuf))
-        {
-            error_location();
-            pthread_exit(NULL);
-        }
-        printf("%s", sizebuf);
-        if ((sendSize = send(clfd, buf, readSize, 0)) != readSize)
-        {
-            error_location();
-            pthread_exit(NULL);
-        }
-        printf("%s", buf);
-    }
-    if ((sendSize = send(clfd, terminate, strlen(terminate), 0)) != strlen(terminate))
-    {
-        error_location();
-        pthread_exit(NULL);
-    }
-    printf("%s", terminate);
-     */
 }
 
 /*
@@ -299,8 +267,6 @@ connectHandThreadFunc(void *clfdP)
 		//std::unique_ptr<int, decltype(close_fd) *> directory(&dfd, close_fd);
         if (dfd < 0)
         {
-            error_location();
-            std::cout << "error when open dir" << std::endl;
 			printLog(LOG_ERROR, "error when open dir " + std::string(strerror(errno)), __FILE__, __LINE__);
 			//close(clfd);
             pthread_exit(NULL);
@@ -352,7 +318,7 @@ void serve(int sockfd, struct sockaddr *clientaddr, socklen_t *length)
        // printf("client address: %s:%d\n", inet_ntop(AF_INET, &((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_addr), abuf,\
                                                    INET_ADDRSTRLEN), ntohs((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_port));
 		printLog(LOG_INFO, "client address: " + std::string(inet_ntop(AF_INET, &((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_addr), abuf, \
-			INET_ADDRSTRLEN)) + std::to_string(ntohs((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_port)), __FILE__, __LINE__);
+			INET_ADDRSTRLEN)) + ":" + std::to_string(ntohs((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_port)), __FILE__, __LINE__);
         pthread_t pNo;
         int clientfd = clfd;
         pthread_create(&pNo, NULL, connectHandThreadFunc, (void *)&clientfd);
