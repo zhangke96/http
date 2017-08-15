@@ -23,6 +23,7 @@
 #include <vector>
 #include "aux_class.h"
 #include "log.h"
+#include <signal.h>
 
 //std::vector<std::string, __gnu_cxx::pool_allocator<std::string>> vec;
 
@@ -152,6 +153,23 @@ void sendFile(fdwrap clfd, fdwrap fd, char *buf, size_t bufsize)
 int main(void)
 {
 	logStream.open("log", std::ostream::app);
+	/* ignore signal SIGPIPE */
+	sigset_t signals;
+	if (sigemptyset(&signals) != 0)
+	{
+		printLog(LOG_ERROR, "error when empty the signal set", __FILE__, __LINE__);
+		exit(1);
+	}
+	if (sigaddset(&signals, SIGPIPE) != 0)
+	{
+		printLog(LOG_ERROR, "error when add signal SIGPIPE", __FILE__, __LINE__);
+		exit(1);
+	}
+	if (sigprocmask(SIG_BLOCK, &signals, nullptr) != 0)
+	{
+		printLog(LOG_ERROR, "error when block the signal", __FILE__, __LINE__);
+		exit(1);
+	}
     int sockfd;
     struct sockaddr_in servaddr;
     socklen_t length;
