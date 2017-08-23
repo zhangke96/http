@@ -10,6 +10,7 @@ class fdwrap
 {
 	/* 用来包装fd(file descriptor),可以共享fd,自动计数，没有引用时自动释放 */
 public:
+	fdwrap() : fd(-1), fdsp(&fd, close) {}
 	explicit fdwrap(int filed) : fd(filed), fdsp(&fd, close) {}
 	int read(char *buf, size_t size)
 	{
@@ -39,14 +40,51 @@ public:
 		}
 		return (fileoffset == statinfo.st_size);
 	}
+	void reset(int newfd)
+	{
+		fd = newfd;
+		fdsp.reset(&fd, close);
+	}
+	fdwrap(const fdwrap &rhs)
+		: fd(rhs.fd), fdsp(rhs.fdsp)
+	{}
+	fdwrap& operator=(const fdwrap &rhs)
+	{
+		if (this != &rhs)
+		{
+			fd = rhs.fd;
+			fdsp = rhs.fdsp;
+		}
+		return *this;
+	}
+	fdwrap(fdwrap &&rhs) noexcept
+		: fdsp(std::move(rhs.fdsp))
+	{
+		fd = rhs.fd;
+		rhs.fd = -1; 
+	}
+	fdwrap& operator=(fdwrap &&rhs) noexcept
+	{
+		if (this != &rhs)
+		{
+			fd = rhs.fd;
+			rhs.fd = -1;
+			fdsp = std::move(rhs.fdsp);
+		}
+		return *this;
+	}
 private:
 	int fd;
 	std::shared_ptr<int> fdsp;
 	static void close(int *fdp)
 	{
+		if (*fdp == -1)
+			return;
 		if (::close(*fdp) != 0)
 			//::err_quit("error when close fd");
-			printf("error when close fd\n");
+		{
+			printf("error when close fd: %d\n", *fdp);
+		}
 	}
 };
 

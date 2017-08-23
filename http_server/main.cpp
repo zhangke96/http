@@ -24,45 +24,17 @@
 #include "aux_class.h"
 #include "log.h"
 #include <signal.h>
+#include <list>
+#include "HttpConnection.h"
+#include <set>
 
-//std::vector<std::string, __gnu_cxx::pool_allocator<std::string>> vec;
-
+std::list<HttpConnection> connections;
 extern std::ofstream logStream;
 int initserver(int type, const struct sockaddr *addr, socklen_t alen, int qlen);
-void serve(int sockfd, struct sockaddr *cltaddr, socklen_t *len);
+int serve(int sockfd, struct sockaddr *cltaddr, socklen_t *len);
 void *connectHandThreadFunc(void *);
-std::string createNotFound()
-{
-    time_t nowTime = time(NULL);
-	struct tm tmTemp;
-    const struct tm *toParse = gmtime_r(&nowTime, &tmTemp);
-    char timebuf[40];
-    if (strftime(timebuf, 40, "Date: %a, %d %b %G %T %Z", toParse) == 0)
-    {
-		printLog(LOG_WARN, "time buf is too short", __FILE__, __LINE__);
-    }
-    std::string response("HTTP/1.1 404 Not Found\r\n"
-                                 "Server: zhangke/0.1\r\n");
-    response.append(timebuf);
-    response.append("\r\nContent-Type: text/html\r\nTransfer-Encoding: chunked\r\nConnection:close\r\n\r\n");
-    return response;
-}
-std::string createOk()
-{
-    time_t nowTime = time(NULL);
-	struct tm tmTemp;
-    const struct tm *toParse = gmtime_r(&nowTime, &tmTemp);
-    char timebuf[40];
-    if (strftime(timebuf, 40, "Date: %a, %d %b %G %T %Z", toParse) == 0)
-    {
-		printLog(LOG_WARN, "time buf is too short", __FILE__, __LINE__);
-    }
-    std::string response("HTTP/1.1 200 OK\r\n"
-                                 "Server: zhangke/0.1\r\n");
-    response.append(timebuf);
-    response.append("\r\nContent-Type: text/html\r\nTransfer-Encoding: chunked\r\nConnection:close\r\n\r\n");
-    return response;
-}
+
+
 void sendFile(fdwrap clfd, fdwrap fd, char *buf, size_t bufsize)
 {
     ssize_t readSize;
@@ -77,31 +49,6 @@ void sendFile(fdwrap clfd, fdwrap fd, char *buf, size_t bufsize)
 	int status = 0;
     while (true)
     {
-        /*
-        while ((work = fgets(buf + index, remainSize, fileInput)) != NULL)   // fgets will store \n and change to \r\n
-        {
-            status = 0;
-            alineSize = strlen(work);
-            if (alineSize > 1)
-            {
-                if (work[alineSize - 1] == '\n' && work[alineSize - 2] != '\r')
-                {
-                    work[alineSize - 1] = '\r';
-                    work[alineSize] = '\n';
-                }
-                else
-                    --alineSize;
-            }
-            else
-            {
-                work[alineSize - 1] = '\r';
-                work[alineSize] = '\n';
-            }
-            blockSize += (alineSize - 1);
-            index += (alineSize + 2);
-            remainSize -= (alineSize + 2);
-        }
-         */
 		while ((size = fd.read(buf + index, remainSize)) > 0)
 		{
 			//status = 0;
@@ -154,6 +101,7 @@ void sendFile(fdwrap clfd, fdwrap fd, char *buf, size_t bufsize)
  * 创建服务端套接字，监听指定端口
  * 每一个请求解释http报文，暂时只支持文件的访问，即静态文件服务器
  */
+
 int main(void)
 {
 	logStream.open("log", std::ostream::app);
@@ -161,20 +109,20 @@ int main(void)
 	sigset_t signals;
 	if (sigemptyset(&signals) != 0)
 	{
-		printLog(LOG_ERROR, "error when empty the signal set", __FILE__, __LINE__);
+		Log(LOG_ERROR, "error when empty the signal set");
 		exit(1);
 	}
 	if (sigaddset(&signals, SIGPIPE) != 0)
 	{
-		printLog(LOG_ERROR, "error when add signal SIGPIPE", __FILE__, __LINE__);
+		Log(LOG_ERROR, "error when add signal SIGPIPE");
 		exit(1);
 	}
 	if (sigprocmask(SIG_BLOCK, &signals, nullptr) != 0)
 	{
-		printLog(LOG_ERROR, "error when block the signal", __FILE__, __LINE__);
+		Log(LOG_ERROR, "error when block the signal");
 		exit(1);
 	}
-    int sockfd;
+    int serverfd;
     struct sockaddr_in servaddr;
     socklen_t length;
     char abuf[INET_ADDRSTRLEN];
@@ -182,22 +130,97 @@ int main(void)
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sin_family      = AF_INET;
     servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    servaddr.sin_port        = htons(80);
+    servaddr.sin_port        = htons(8000);
 
-    if ((sockfd = initserver(SOCK_STREAM, (struct sockaddr *)&servaddr, sizeof(servaddr),128 )) < 0)
+    if ((serverfd = initserver(SOCK_STREAM, (struct sockaddr *)&servaddr, sizeof(servaddr),128 )) < 0)
     {
-		printLog(LOG_ERROR, "error when create the tcp socket " + std::string(strerror(errno)), __FILE__, __LINE__);
+		Log(LOG_ERROR, "error when create the tcp socket " + std::string(strerror(errno)));
 		exit(-1);
     }
     // now success create a socket
+	std::set<int> shouldDelete;
     for (; ;)
     {
+		std::cout << connections.size() << std::endl;
+		shouldDelete.clear();
         struct sockaddr_in clientaddr;
 		length = sizeof(clientaddr);
-        serve(sockfd, (struct sockaddr *)&clientaddr, &length);
-        // print the client address and port number
-   //     printf("client address: %s:%d\n", inet_ntop(AF_INET, &clientaddr.sin_addr, abuf,\
-                                                   INET_ADDRSTRLEN), ntohs(clientaddr.sin_port));
+		int maxfd = serverfd;
+		fd_set rd, wrt;
+		FD_ZERO(&rd);
+		FD_ZERO(&wrt);
+		FD_SET(serverfd, &rd);
+		// add all clients' connection register
+		for (auto &connect : connections)
+		{
+			if (connect.state == Http_Connection_Receiving)
+				FD_SET(connect.getfd(), &rd);
+			else
+				FD_SET(connect.getfd(), &wrt);
+			if (connect.getfd() > maxfd)
+				maxfd = connect.getfd();
+		}
+		int selectreturn;
+		Log(LOG_INFO, "max fd is: " + std::to_string(maxfd));
+		
+		if ((selectreturn = select(maxfd + 1, &rd, &wrt, NULL, NULL)) < 0)  // wait for the connection from clients
+		{
+			Log(LOG_ERROR, "error when select" + std::string(strerror(errno)));
+			exit(0);
+		}
+		else
+		{
+			for (auto &connect : connections)
+			{
+				if (FD_ISSET(connect.getfd(), &rd))
+				{
+					if (connect.state == Http_Connection_Receiving)
+					{
+						Log(LOG_INFO, "receve from client");
+						int size = connect.read();
+						if (size < 0)
+						{
+							Log(LOG_ERROR, "error when read from client");
+							shouldDelete.insert(connect.getfd());
+						}
+					}
+				}
+				if (FD_ISSET(connect.getfd(), &wrt))
+				{
+					if (connect.state != Http_Connection_Receiving)
+					{
+						Log(LOG_INFO, "write to the client");
+						int size = connect.write();
+						if (size < 0)
+						{
+							Log(LOG_ERROR, "error when write");
+							shouldDelete.insert(connect.getfd());
+						}
+						if (connect.sendAllBody())
+						{
+							shouldDelete.insert(connect.getfd());
+						}
+					}
+				}
+			}
+			for (auto dele : shouldDelete)
+			{
+				connections.remove_if([dele](HttpConnection &connect) { return connect.getfd() == dele; });
+			}
+			if (FD_ISSET(serverfd, &rd))  // server socket can accept the connections from clients
+			{
+				int num;
+				if ((num = serve(serverfd, reinterpret_cast<struct sockaddr *>(&clientaddr), &length)) < 0)
+				{
+					Log(LOG_ERROR, "serve error");
+					exit(0);
+				}
+				else
+				{
+					Log(LOG_INFO, "get " + std::to_string(num) + " connections");
+				}
+			}
+		}
     }
     return 0;
 }
@@ -210,23 +233,45 @@ int initserver(int type, const struct sockaddr *addr, socklen_t alen, int qlen)
     int fd;
     int err = 0;
     int reuse = 1;
-    if ((fd = socket(addr->sa_family, type, 0)) < 0)
-        return -1;
-    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse,
-                  sizeof(int)) < 0)
-        goto errout;
-    if (bind(fd, addr, alen) < 0)  /* bind socket fd to address addr */
-        goto errout;
-    if (listen(fd, qlen) < 0)
-        goto errout;
-
+	if ((fd = socket(addr->sa_family, type, 0)) < 0)
+	{
+		Log(LOG_ERROR, "error when create server socket");
+		return -1;
+	}
+	if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse,
+		sizeof(int)) < 0)
+	{
+		Log(LOG_ERROR, "error when set socket reuse");
+		goto errout;
+	}
+	int val;
+	if ((val = fcntl(fd, F_GETFL, 0)) == -1)
+	{
+		Log(LOG_ERROR, "error when get fcntl");
+		goto errout;
+	}
+	if ((val = fcntl(fd, F_SETFL, val | O_NONBLOCK)) == -1)
+	{
+		Log(LOG_ERROR, "error when set noblock flag");
+		goto errout;
+	}
+	if (bind(fd, addr, alen) < 0)  /* bind socket fd to address addr */
+	{
+		Log(LOG_ERROR, "error when bind address");
+		goto errout;
+	}
+	if (listen(fd, qlen) < 0)
+	{
+		Log(LOG_ERROR, "error when listen");
+		goto errout;
+	}
     return fd;
 
 errout:
     err = errno;
     close(fd);
     errno = err;
-	printLog(LOG_ERROR, "failed to initialize the server " + std::string(strerror(errno)), __FILE__, __LINE__);
+	Log(LOG_ERROR, "failed to initialize the server " + std::string(strerror(errno)));
     return -1;
 }
 
@@ -326,23 +371,66 @@ connectHandThreadFunc(void *clfdP)
    //close(clfd);
     pthread_exit(NULL);
 }
-void serve(int sockfd, struct sockaddr *clientaddr, socklen_t *length)
+int serve(int sockfd, struct sockaddr *clientaddr, socklen_t *length)
 {
     int clfd;
-    if ((clfd = accept(sockfd, clientaddr, length)) < 0)
-    {	
-		printLog(LOG_ERROR, "accept error: " + std::string(strerror(errno)), __FILE__, __LINE__);
-        return;
-    }
-    else   //开启线程开始接受数据并且处理然后返回结果
-    {
-        char abuf[INET_ADDRSTRLEN];
-       // printf("client address: %s:%d\n", inet_ntop(AF_INET, &((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_addr), abuf,\
-                                                   INET_ADDRSTRLEN), ntohs((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_port));
-		printLog(LOG_INFO, "client address: " + std::string(inet_ntop(AF_INET, &((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_addr), abuf, \
-			INET_ADDRSTRLEN)) + ":" + std::to_string(ntohs((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_port)), __FILE__, __LINE__);
-        pthread_t pNo;
-        int clientfd = clfd;
-        pthread_create(&pNo, NULL, connectHandThreadFunc, (void *)&clientfd);
-    }
+	int val;
+	int num = 0;
+	if ((val = fcntl(sockfd, F_GETFL, 0)) == -1)
+	{
+		Log(LOG_ERROR, "fcntl error");
+		return -1;
+	}
+	if (val & O_NONBLOCK)
+	{
+	}
+	else
+	{
+		Log(LOG_ERROR, "can only work with noblocking socket");
+		return -1;
+	}
+	while ((clfd = accept(sockfd, clientaddr, length)) >= 0)
+	{
+		char abuf[INET_ADDRSTRLEN];
+		Log(LOG_INFO, "client address: " + std::string(inet_ntop(AF_INET, &((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_addr), abuf, \
+			INET_ADDRSTRLEN)) + ":" + std::to_string(ntohs((reinterpret_cast<struct sockaddr_in *>(clientaddr))->sin_port)));
+		// record the client socket fd
+		/*std::string notfound = createNotFound();
+		send(clfd, notfound.c_str(), notfound.size(), 0);
+		send(clfd, "1\r\n1\r\n0\r\n\r\n", 11, 0);*/
+		connections.push_back(HttpConnection(fdwrap(clfd)));
+		std::cout << "clfd: " << clfd;
+		std::cout << " size: " << connections.size() << std::endl;
+		++num;
+	}
+	if (errno == EAGAIN) // no client connections
+	{
+		std::cout << "EAGAIN" << std::endl;
+		return num;
+	}
+	else if (clfd == -1)
+	{
+		Log(LOG_ERROR, "error when accept");
+		return num;
+	}
+
+}
+
+void *
+acceptThread(void *sockfdP)       // thread used to accpet the connection from clients
+{
+	int clfd;
+	struct sockaddr_in clientaddr;
+	socklen_t length;
+	int sockfd = *reinterpret_cast<int *>(sockfdP);
+	char errorstr[100]; // used for strerror_r
+	if ((clfd = accept(sockfd, reinterpret_cast<sockaddr *>(&clientaddr), &length) < 0))
+	{
+		Log(LOG_ERROR, "accept error: " + std::string(strerror_r(errno, errorstr, 100)));
+		return NULL;
+	}
+	else  // add the clfd to the exist connections vector
+	{
+
+	}
 }

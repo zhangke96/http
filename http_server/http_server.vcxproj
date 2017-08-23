@@ -64,11 +64,15 @@
     <IncludePath>C:\Program Files %28x86%29\Microsoft Visual Studio\include\x86_64-linux-gnu;C:\Program Files %28x86%29\Microsoft Visual Studio\include;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemGroup>
+    <ClCompile Include="HttpConnection.cpp" />
     <ClCompile Include="http_parser.c" />
+    <ClCompile Include="log.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="tool.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="aux_class.h" />
+    <ClInclude Include="HttpConnection.h" />
     <ClInclude Include="http_parser.h" />
     <ClInclude Include="log.h" />
     <ClInclude Include="RequestParser.h" />
