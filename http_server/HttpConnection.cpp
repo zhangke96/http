@@ -1,5 +1,6 @@
 #include "HttpConnection.h"
-
+#include "tool.h"
+static const char terminate[] = "0\r\n\r\n";
 const char *HttpConnection::init()
 {
 	len = 80 * 1024;
@@ -46,7 +47,6 @@ int HttpConnection::read()
 	if (aParser.isFinished() && state == Http_Connection_Receiving)
 	{
 		state = Http_Connection_ReceiveAll;
-		std::cout << "request file :" << aParser.getUrl() << std::endl;
 	}
 	if (nparsed != recved)
 	{
@@ -130,22 +130,35 @@ void HttpConnection::sendABlock()
 	}
 	if (size < 0)
 	{
-		Log(LOG_ERROR, "error when read file");
+		Log(LOG_ERROR, "error when read file" + std::string(strerror(errno)));
 		return;
 	}
 	snprintf(sizebuf, 14, "%x\r\n", blockSize);
 	buf[blockSize] = '\r';
 	buf[blockSize + 1] = '\n';
-	if ((sendSize = send(clfd.getfd(), sizebuf, strlen(sizebuf), 0)) != strlen(sizebuf))
+	if ((sendSize = writen(clfd.getfd(), sizebuf, strlen(sizebuf))) != strlen(sizebuf))
 	{
 		Log(LOG_ERROR, "error when send chunked size");
+
+		if (sendSize == -1)
+			state = Http_Connection_SendAll;  // error, close the connection
 		return;
 	}
-	if ((sendSize = send(clfd.getfd(), buf, blockSize + 2, 0)) != blockSize + 2)
+	if ((sendSize = writen(clfd.getfd(), buf, blockSize + 2)) != blockSize + 2)
 	{
 		Log(LOG_ERROR, "error when send chunked body");
+
+		if (sendSize == -1)
+			state = Http_Connection_SendAll;  // error, close the connection
 		return;
 	}
 	if (sendFdWrap.endOfFile())
+	{
 		state = Http_Connection_SendAll;
+		if ((sendSize = writen(clfd.getfd(), (const void *)terminate, strlen(terminate))) != strlen(terminate))
+		{
+			Log(LOG_ERROR, "error when send chunked end");
+			return;
+		}
+	}
 }

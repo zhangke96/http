@@ -20,6 +20,5 @@ void printLog(LogLevel level, const std::string& msg, const char *filename, int 
 do {\
 	printLog(level, message, __FILE__, __LINE__); \
 } while(0)
-//void Log(LogLevel level, const std::string &msg);
 #endif // !ZK_HTTP_LOG
 

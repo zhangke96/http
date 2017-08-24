@@ -16,9 +16,9 @@ enum HttpConnectionState
 	Http_Connection_SendAll
 };
 
-static const char terminate[] = "0\r\n\r\n";
+
 // This class is designed for HTTP connection:close
-// copy constructor!!!
+
 struct HttpConnection
 {
 public:

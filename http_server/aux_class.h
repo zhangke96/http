@@ -10,49 +10,47 @@ class fdwrap
 {
 	/* 用来包装fd(file descriptor),可以共享fd,自动计数，没有引用时自动释放 */
 public:
-	fdwrap() : fd(-1), fdsp(&fd, close) {}
-	explicit fdwrap(int filed) : fd(filed), fdsp(&fd, close) {}
+	fdwrap() : fdsp(new int(-1), close) {}   // default constructor, assign a invaild fd -1
+	explicit fdwrap(int filed) : fdsp(new int(filed), close) {}
 	int read(char *buf, size_t size)
 	{
-		return ::read(fd, buf, size);
+		return ::read(*fdsp, buf, size);
 	}
 	int write(char *buf, size_t size)
 	{
-		return ::write(fd, buf, size);
+		return ::write(*fdsp, buf, size);
 	}
 	int getfd()
 	{
-		return fd;
+		return *fdsp;
 	}
 	bool endOfFile() const
 	{
 		struct stat statinfo;
-		if (fstat(fd, &statinfo) != 0)
+		if (fstat(*fdsp, &statinfo) != 0)
 		{
-			printLog(LOG_ERROR, "error when fstat", __FILE__, __LINE__);
+			Log(LOG_ERROR, "error when fstat");
 			return true;
 		}
 		off_t fileoffset;
-		if ((fileoffset = lseek(fd, 0, SEEK_CUR)) == -1)
+		if ((fileoffset = lseek(*fdsp, 0, SEEK_CUR)) == -1)
 		{
-			printLog(LOG_ERROR, "can't lseek", __FILE__, __LINE__);
+			Log(LOG_ERROR, "can't lseek");
 			return true;
 		}
 		return (fileoffset == statinfo.st_size);
 	}
 	void reset(int newfd)
 	{
-		fd = newfd;
-		fdsp.reset(&fd, close);
+		fdsp.reset(new int(newfd), close);
 	}
 	fdwrap(const fdwrap &rhs)
-		: fd(rhs.fd), fdsp(rhs.fdsp)
+		: fdsp(rhs.fdsp)
 	{}
 	fdwrap& operator=(const fdwrap &rhs)
 	{
 		if (this != &rhs)
 		{
-			fd = rhs.fd;
 			fdsp = rhs.fdsp;
 		}
 		return *this;
@@ -60,15 +58,11 @@ public:
 	fdwrap(fdwrap &&rhs) noexcept
 		: fdsp(std::move(rhs.fdsp))
 	{
-		fd = rhs.fd;
-		rhs.fd = -1; 
 	}
 	fdwrap& operator=(fdwrap &&rhs) noexcept
 	{
 		if (this != &rhs)
 		{
-			fd = rhs.fd;
-			rhs.fd = -1;
 			fdsp = std::move(rhs.fdsp);
 		}
 		return *this;
@@ -79,12 +73,15 @@ private:
 	static void close(int *fdp)
 	{
 		if (*fdp == -1)
-			return;
-		if (::close(*fdp) != 0)
-			//::err_quit("error when close fd");
 		{
-			printf("error when close fd: %d\n", *fdp);
+			delete fdp;
+			return;
 		}
+		if (::close(*fdp) != 0)
+		{
+			Log(LOG_ERROR, "error when close fd: " + std::to_string(*fdp));
+		}
+		delete fdp;
 	}
 };
 

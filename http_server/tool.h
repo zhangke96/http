@@ -61,4 +61,6 @@
 //}
 std::string createNotFound();
 std::string createOk();
+ssize_t readn(int fd, void *buf, size_t nbytes);  // copy from apue
+ssize_t writen(int fd, const void *buf, size_t nbytes); // copy from apue
 #endif
